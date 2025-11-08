@@ -5,38 +5,41 @@ import Graphics.Gloss.Interface.IO.Game
 import Graphics.Gloss.Interface.Environment (getScreenSize)
 import System.Random (StdGen, randomR, mkStdGen)
 import System.Exit (exitSuccess)
+import Data.Maybe (catMaybes)
 
 --Custom gamestate datatype containing all gameworld info
 
 data GameState = GameState
-  { playerPos   :: (Float, Float)
-  , playerVel   :: (Float, Float)
-  , isPaused    :: Bool
-  , elapsedTime :: Float
-  , halfW       :: Float
-  , halfH       :: Float
-  , enemies     :: [Enemy]
-  , spawnTimer  :: Float
-  , rng         :: StdGen
-  , bullets     :: [Bullet]
-  , bspawnTimer :: Float
+  { playerPos    :: (Float, Float)
+  , playerVel    :: (Float, Float)
+  , playerHealth :: (Float, Float)
+  , isPaused     :: Bool
+  , elapsedTime  :: Float
+  , halfW        :: Float
+  , halfH        :: Float
+  , enemies      :: [Enemy]
+  , spawnTimer   :: Float
+  , rng          :: StdGen
+  , bullets      :: [Bullet]
+  , bspawnTimer  :: Float
   } deriving Show
 
 --initialising gamestate
 
 initialState :: GameState
 initialState = GameState
-  { playerPos   = (-300, 0)
-  , playerVel   = (0, 0)
-  , isPaused    = False
-  , elapsedTime = 0
-  , halfW       = 0
-  , halfH       = 0
-  , enemies     = [Enemy (300, 0) (-100, 0) (20, 20) 0]  
-  , spawnTimer  = 0
-  , rng         = mkStdGen 42
-  , bullets     = [Bullet (-300, 0) (800, 0) (10, 20) 0]
-  , bspawnTimer = 0
+  { playerPos    = (-300, 0)
+  , playerVel    = (0, 0)
+  , playerHealth = 100
+  , isPaused     = False
+  , elapsedTime  = 0
+  , halfW        = 0
+  , halfH        = 0
+  , enemies      = [Enemy (300, 0) (-100, 0) (20, 20) 0]  
+  , spawnTimer   = 0
+  , rng          = mkStdGen 42
+  , bullets      = [Bullet (-300, 0) (800, 0) (10, 20) 0]
+  , bspawnTimer  = 0
   }
 
 --handling input
@@ -126,9 +129,9 @@ render state = return $
   pictures $
     [ translate x y $ color cyan $ rectangleSolid 50 20 ] ++
     [ translate ex ey $ color red  $ rectangleSolid 40 40
-    | Enemy (ex, ey) (evx, evy) (sx, sy) bornT <- enemies state ] ++
+    | Enemy (ex, ey) (evx, evy) (sx, sy) (ehc, ehm) bornT <- enemies state ] ++
     [ translate bx by $ color yellow  $ rectangleSolid 20 10 
-    | Bullet (bx, by) (bvx, bvy) (sx, sy) bornT <- bullets state]
+    | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state]
   where
     (x, y) = playerPos state
 
@@ -137,6 +140,7 @@ data Enemy = Enemy
   { ePos   :: (Float, Float)
   , eVel   :: (Float, Float)
   , eSize  :: (Float, Float)
+  , health :: (Float, Float)
   , eBornT :: Float
   } deriving Show
 
@@ -144,11 +148,30 @@ data Enemy = Enemy
 
 --enemy logic
 data Bullet = Bullet
-  { bPos   :: (Float, Float)
-  , bVel   :: (Float, Float)
-  , bSize  :: (Float, Float)
-  , bBornT :: Float
+  { bPos    :: (Float, Float)
+  , bVel    :: (Float, Float)
+  , bSize   :: (Float, Float)
+  , bDamage :: Float
+  , bBornT  :: Float
   } deriving Show
+
+
+--Handling collision
+-- Handling all collisions between all bullets and all enemies
+allBulletCollisions :: [Bullet] -> [Enemy] -> [(Bullet, Enemy)]
+allBulletCollisions bs es = [ (bullet, enemy)  | bullet <- bs, enemy <- es, bulletCollision bullet enemy]
+
+-- Single collision between bullet and enemy
+bulletCollision :: Bullet -> Enemy -> Bool
+bulletCollision (Bullet (bposx, bposy) _ (bsx, bsy) _ _) (Enemy (eposx, eposy) _ (esx, esy) _ _) = 
+  (bposx < eposx + esx) && 
+  (bposx + bsx > eposx) &&
+  (bposy < eposy + esy) &&
+  (bposy + bsy > eposy)
+
+
+
+
 
 
 
