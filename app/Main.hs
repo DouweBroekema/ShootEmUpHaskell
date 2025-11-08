@@ -18,6 +18,8 @@ data GameState = GameState
   , enemies     :: [Enemy]
   , spawnTimer  :: Float
   , rng         :: StdGen
+  , bullets     :: [Bullet]
+  , bspawnTimer :: Float
   } deriving Show
 
 --initialising gamestate
@@ -33,6 +35,8 @@ initialState = GameState
   , enemies     = [Enemy (300, 0) (-100, 0) (20, 20) 0]  
   , spawnTimer  = 0
   , rng         = mkStdGen 42
+  , bullets     = [Bullet (-300, 0) (800, 0) (10, 20) 0]
+  , bspawnTimer = 0
   }
 
 --handling input
@@ -64,12 +68,15 @@ update dt state
   | otherwise = 
       let (x,y)   = playerPos state
           (vx,vy) = playerVel state
+
+          -- Moving enemies
           movedEnemies = [ e { ePos = (ex + evx * dt, ey + evy * dt) }
                        | e <- enemies state
                        , let (ex, ey)   = ePos e
                        , let (evx, evy) = eVel e
                        ]
           
+          -- Enemy Spawning
           timer = spawnTimer state - dt
           (randY,newGen) = randomR (-halfH state, halfH state) (rng state)
           newEnemy = Enemy (halfW state + 40, randY) (-100,0) (20,20) (elapsedTime state)
@@ -78,12 +85,30 @@ update dt state
             if timer <= 0
                 then (newEnemy : movedEnemies, 2.0)
                 else (movedEnemies, timer)
+
+          -- Moving enemies
+          movedBullets = [ b { bPos = (bx + bvx * dt, by + bvy * dt) }
+                       | b <- bullets state
+                       , let (bx, by)   = bPos b
+                       , let (bvx, bvy) = bVel b
+                       ]
+          bulletTimer = bspawnTimer state - dt
+
+          -- Spawning new bullets
+          newBullet = Bullet(x,y) (800,0) (10, 20) (elapsedTime state)
+          (finalBullets,finalBulletTimer) =
+            if bulletTimer <= 0
+                then (newBullet : movedBullets, 0.2)
+                else (movedBullets, bulletTimer)
+
       in return state 
                { playerPos   = (x + vx * dt, y + vy * dt)
                , enemies     = finalEnemies
                , spawnTimer  = finalTimer
                , elapsedTime = elapsedTime state + dt 
                , rng = newGen
+               , bullets     = finalBullets
+               , bspawnTimer = finalBulletTimer
                }
 
 --window settings
@@ -92,7 +117,7 @@ window :: Display
 window = FullScreen
 
 fps :: Int
-fps = 60
+fps = 144
 
 --rendering world
 
@@ -101,7 +126,9 @@ render state = return $
   pictures $
     [ translate x y $ color cyan $ rectangleSolid 50 20 ] ++
     [ translate ex ey $ color red  $ rectangleSolid 40 40
-    | Enemy (ex, ey) (evx, evy) (sx, sy) bornT <- enemies state ]
+    | Enemy (ex, ey) (evx, evy) (sx, sy) bornT <- enemies state ] ++
+    [ translate bx by $ color yellow  $ rectangleSolid 20 10 
+    | Bullet (bx, by) (bvx, bvy) (sx, sy) bornT <- bullets state]
   where
     (x, y) = playerPos state
 
@@ -113,8 +140,20 @@ data Enemy = Enemy
   , eBornT :: Float
   } deriving Show
 
+--bullet logic
+
+--enemy logic
+data Bullet = Bullet
+  { bPos   :: (Float, Float)
+  , bVel   :: (Float, Float)
+  , bSize  :: (Float, Float)
+  , bBornT :: Float
+  } deriving Show
+
+
+
 background :: Color
-background = blue
+background = black
 
 main :: IO ()
 main = do
