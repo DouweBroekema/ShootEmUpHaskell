@@ -105,12 +105,18 @@ update dt state
                 else (movedBullets, bulletTimer)
 
 
-          -- Removing all destroyed bullets and enemies
+          -- Gathering collision data
           pendingDestroyedEntities = allBulletCollisions allCurrentBullets allCurrentEnemies
-          destroyedEnemies = (catMaybes . map snd) pendingDestroyedEntities
           destroyedBullets = map fst pendingDestroyedEntities
+          
+          -- Gathering all enemies and updating their health if needed.
+          hitEnemies = map snd pendingDestroyedEntities
+          nonHitEnemies = filter (\x -> x `notElem` hitEnemies) allCurrentEnemies
+          hitEnemiesProcessed = map f pendingDestroyedEntities
+           where f (Bullet bp bv bs d bt, Enemy ep ev es health et) = (Enemy ep ev es (health-d) et)
 
-          finalEnemies = [ enemy | enemy <- allCurrentEnemies, not (enemy `elem` destroyedEnemies)]
+          -- Finalizing bullets and enemies
+          finalEnemies = nonHitEnemies ++ filter (\(Enemy _ _ _ health _) -> health > 0) hitEnemiesProcessed
           finalBullets = [ bullet| bullet <- allCurrentBullets, not (bullet `elem` destroyedBullets)]
 
       in return state 
@@ -165,16 +171,11 @@ data Bullet = Bullet
   } deriving (Show, Eq)
 
 
---Handling collision
+
 -- Handling all collisions between all bullets and all enemies
-allBulletCollisions :: [Bullet] -> [Enemy] -> [(Bullet, Maybe Enemy)]
-allBulletCollisions bs es = [ (bullet, checkEnemyAlive enemy)  | bullet <- bs, enemy <- es, bulletCollision bullet enemy]
- where 
-  -- Filtering out enemies that ARE alive, to make sure they don't get removed.
-  checkEnemyAlive :: Enemy -> Maybe Enemy 
-  checkEnemyAlive fullEnemy@(Enemy _ _ _ health _) 
-   | health > 0 = Nothing
-   | otherwise = Just fullEnemy
+allBulletCollisions :: [Bullet] -> [Enemy] -> [(Bullet, Enemy)]
+allBulletCollisions bs es = [ (bullet, enemy)  | bullet <- bs, enemy <- es, bulletCollision bullet enemy]
+
 
 -- Single collision between bullet and enemy
 bulletCollision :: Bullet -> Enemy -> Bool
