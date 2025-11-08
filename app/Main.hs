@@ -18,6 +18,12 @@ enemyScoreIncrement = 10
 playerXOffset :: Float
 playerXOffset = 50
 
+explosionSize :: Float
+explosionSize = 100
+
+explosionDuration :: Float 
+explosionDuration = 0.5
+
 --Custom gamestate datatype containing all gameworld info
 
 data GameState = GameState
@@ -35,6 +41,7 @@ data GameState = GameState
   , score        :: Int
   , highScore    :: Int
   , playerState  :: PlayerState
+  , explosions   :: [Explosion]
   } deriving Show
 
 -- Player state 
@@ -62,6 +69,7 @@ initialState = GameState
   , score        = 0
   , highScore    = 0
   , playerState  = Playing
+  , explosions   = []
   }
 
 --handling input
@@ -158,6 +166,12 @@ update dt state = case playerState state of
           scoreProcessed = foldr f newScore hitEnemiesProcessed
            where f (Enemy _ _ _ health _) acc = if health <= 0  then acc + enemyScoreIncrement else acc
 
+          -- Displaying explode animation for each died enemy
+          newExplosions = [ Explosion enemyPos explosionSize explosionDuration explosionDuration   | (Enemy enemyPos _ _ health _) <- hitEnemiesProcessed, health <= 0]
+          allExplosions = map (\(Explosion p s tT rT) -> Explosion p s tT (rT - dt)) (explosions state)
+          allRemainingExplosions = filter (\(Explosion p s tT rT) -> rT > 0) allExplosions
+          finalExplosions = newExplosions ++ allRemainingExplosions
+
           -- Finalizing bullets and enemies
           finalEnemies =
             [ et
@@ -197,7 +211,8 @@ update dt state = case playerState state of
                , bullets     = finalBullets
                , bspawnTimer = finalBulletTimer
                , score       = scoreProcessed
-               , playerState = if playerHit then Dead else Playing
+               , playerState = Playing
+               , explosions  = finalExplosions
                }
 
 --window settings
@@ -228,6 +243,7 @@ enemySize = 40
 
 playerSize :: (Float, Float)
 playerSize = (50, 20)
+
 --rendering world
 render :: GameState -> IO Picture
 render state = return $
@@ -239,6 +255,7 @@ render state = return $
     | e <- enemies state ] ++
     [ translate bx by $ color yellow $ rectangleSolid 20 10
     | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state] ++ 
+    [ translate expx expy $ color white $ circleSolid (expls * (explrT / expltT)) | Explosion (expx, expy) expls expltT explrT <- explosions state ] ++
     [translate (-halfW state + textXOffset + scoreTextXOffset) (halfH state - scoreTextSpacing) $ scale scoreTextScale scoreTextScale $ color white $  text $ show $ score state,
     translate (-halfW state + textXOffset) (halfH state - scoreTextSpacing) $ scale scoreTextScale scoreTextScale $ color white $  text "Score:", 
     translate (-halfW state + textXOffset) (halfH state - (2 * scoreTextSpacing)) $ scale scoreTextScale scoreTextScale $ color white $ text "Highscore:",
@@ -268,13 +285,19 @@ data Enemy = Enemy
   } deriving (Show, Eq)
 
 data SmartEnemy = SmartEnemy
-  { sePos   :: (Float, Float)
-  , seVel   :: (Float, Float)
-  , seSize  :: (Float, Float)
+  { sePos    :: (Float, Float)
+  , seVel    :: (Float, Float)
+  , seSize   :: (Float, Float)
   , seHealth :: Float
-  , seBornT :: Float
+  , seBornT  :: Float
   } deriving (Show, Eq)
 
+data Explosion = Explosion 
+  { expos                :: (Float, Float)
+  , exStartSize          :: Float
+  , totalTime            :: Float
+  , remainingDuration    :: Float
+  } deriving (Show, Eq)
 
 moveEnemy :: Float -> (Float, Float) -> EnemyType -> EnemyType
 moveEnemy dt (_, playerY) enemy =
