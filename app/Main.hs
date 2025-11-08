@@ -8,12 +8,11 @@ import System.Exit (exitSuccess)
 import Data.Maybe (catMaybes)
 
 -- Variables
-dumbEnemyIncrement :: Int
-dumbEnemyIncrement = 10
+enemyScoreIncrement :: Int
+enemyScoreIncrement = 10
 
-smartEnemyIncrement :: Int
-smartEnemyIncrement = 25
-
+playerXOffset :: Float
+playerXOffset = 50
 
 --Custom gamestate datatype containing all gameworld info
 
@@ -78,8 +77,11 @@ handleInput (EventKey (SpecialKey KeyDown) Up _ _) state =
     in return state { playerVel = (vx,0) }
 handleInput (EventKey (SpecialKey KeyEsc) Down _ _) state = do
     exitSuccess
-handleInput (EventKey (Char 'p') Down _ _) state = do
-    return state { playerState = if playerState state == Playing then Paused else Playing }
+handleInput (EventKey (Char 'p') Down _ _) state = 
+   case playerState state of
+             Dead    -> return initialState { halfW = halfW state, halfH = halfH state, playerPos = (-(halfW state) + playerXOffset, 0)}
+             Playing -> return state { playerState = Paused}
+             Paused  -> return state { playerState = Playing}
 handleInput _ state = return state
 
 --updating game world
@@ -150,7 +152,7 @@ update dt state = case playerState state of
           -- Updating score
           newScore = score state
           scoreProcessed = foldr f newScore hitEnemiesProcessed
-           where f (Enemy _ _ _ health _) acc = if health <= 0  then acc + dumbEnemyIncrement else acc
+           where f (Enemy _ _ _ health _) acc = if health <= 0  then acc + enemyScoreIncrement else acc
 
           -- Finalizing bullets and enemies
           finalEnemies =
@@ -174,7 +176,8 @@ update dt state = case playerState state of
           
     
        
-           in  return state 
+           in 
+             return state 
                { playerPos   = (x + vx * dt, y + vy * dt)
                , enemies     = finalEnemies
                , spawnTimer  = finalTimer
@@ -230,8 +233,9 @@ render state = return $
     translate (-halfW state + textXOffset) (halfH state - (2 * scoreTextSpacing)) $ scale scoreTextScale scoreTextScale $ color white $ text "Highscore:",
      translate (-halfW state + textXOffset + highScoreTextXOffset) (halfH state - (2 * scoreTextSpacing)) $ scale scoreTextScale scoreTextScale $ color white $ text $ show $ highScore state] ++ 
     ( case playerState state of 
-      isPaused -> [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $ color cyan $ text "Paused"]
-      Dead ->  [color (withAlpha 0.9 red) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $ color black $ text "You died!"]
+      Paused -> [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $ color cyan $ text "Paused"]
+      Dead ->  [color (withAlpha 0.9 red) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $  color black $ text "You died!",
+                 translate 0 (-125) $ scale 0.5 0.5 $ color black $ text "Press 'p' to restart"]
       Playing -> [])
   where
     (x, y) = playerPos state
@@ -317,7 +321,7 @@ background = black
 main :: IO ()
 main = do
     (screenWidth, _screenHeight) <- getScreenSize
-    let startX = fromIntegral (-screenWidth) / 2 + 50
+    let startX = fromIntegral (-screenWidth) / 2 + playerXOffset
         startState = initialState 
           { playerPos = (startX, 0)
           , halfW = fromIntegral screenWidth / 2
