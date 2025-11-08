@@ -7,6 +7,14 @@ import System.Random (StdGen, randomR, mkStdGen)
 import System.Exit (exitSuccess)
 import Data.Maybe (catMaybes)
 
+-- Variables
+dumbEnemyIncrement :: Int
+dumbEnemyIncrement = 10
+
+smartEnemyIncrement :: Int
+smartEnemyIncrement = 25
+
+
 --Custom gamestate datatype containing all gameworld info
 
 data GameState = GameState
@@ -25,6 +33,10 @@ data GameState = GameState
   , score        :: Int
   , highScore    :: Int
   } deriving Show
+
+-- Player state 
+data PlayerState = Playing | Paused | Dead
+
 
 --initialising gamestate
 
@@ -45,7 +57,7 @@ initialState = GameState
   , bullets      = [Bullet (-300, 0) (800, 0) (10, 20) 20 0]
   , bspawnTimer  = 0
   , score        = 0
-  , highScore    = 99999
+  , highScore    = 0
   }
 
 --handling input
@@ -120,6 +132,7 @@ update dt state
           pendingDestroyedEntities = allBulletCollisions allCurrentBullets allCurrentEnemies
           destroyedBullets = map fst pendingDestroyedEntities
           
+
           -- Gathering all enemies and updating their health if needed.
           hitEnemies = map snd pendingDestroyedEntities
           nonHitEnemies = filter (\x -> x `notElem` hitEnemies) allCurrentEnemies
@@ -131,6 +144,11 @@ update dt state
             Dumb e
           findWrapper e (Smart _) =
             Smart (SmartEnemy (ePos e) (eVel e) (eSize e) (health e) (eBornT e))  
+
+          -- Updating score
+          newScore = score state
+          scoreProcessed = foldr f newScore hitEnemiesProcessed
+           where f (Enemy _ _ _ health _) acc = if health <= 0  then acc + dumbEnemyIncrement else acc
 
           -- Finalizing bullets and enemies
           finalEnemies =
@@ -150,7 +168,9 @@ update dt state
             , (ep,ev,es) == (ePos origBase, eVel origBase, eSize origBase)
             ]
           finalBullets = [ bullet| bullet <- allCurrentBullets, not (bullet `elem` destroyedBullets)]
-
+          
+          
+    
       in 
         if playerHit
           then exitSuccess
@@ -162,6 +182,7 @@ update dt state
                , rng         = newGen
                , bullets     = finalBullets
                , bspawnTimer = finalBulletTimer
+               , score       = if playerHit then 0 else scoreProcessed
                }
 
 --window settings
@@ -171,6 +192,7 @@ window = FullScreen
 fps :: Int
 fps = 144
 
+-- Scale and offset settings
 scoreTextScale :: Float
 scoreTextScale = 0.25
 
@@ -186,14 +208,19 @@ highScoreTextXOffset = 160
 scoreTextXOffset :: Float
 scoreTextXOffset = 110
 
+enemySize :: Float
+enemySize = 40
+
+playerSize :: (Float, Float)
+playerSize = (50, 20)
 --rendering world
 render :: GameState -> IO Picture
 render state = return $
   pictures $
-    [ translate x y $ color cyan $ rectangleSolid 50 20 ] ++
+    [ translate x y $ color cyan $ uncurry rectangleSolid playerSize ] ++
     [ case e of
-      Dumb  (Enemy (ex, ey) _ _ _ _)        -> translate ex ey $ color red   $ rectangleSolid 40 40
-      Smart (SmartEnemy (sx, sy) _ _ _ _)   -> translate sx sy $ color green $ rectangleSolid 40 40
+      Dumb  (Enemy (ex, ey) _ _ _ _)        -> translate ex ey $ color red   $ rectangleSolid enemySize enemySize
+      Smart (SmartEnemy (sx, sy) _ _ _ _)   -> translate sx sy $ color green $ rectangleSolid enemySize enemySize
     | e <- enemies state ] ++
     [ translate bx by $ color yellow $ rectangleSolid 20 10
     | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state] ++ 
