@@ -30,15 +30,15 @@ initialState :: GameState
 initialState = GameState
   { playerPos    = (-300, 0)
   , playerVel    = (0, 0)
-  , playerHealth = 100
+  , playerHealth = (100, 100)
   , isPaused     = False
   , elapsedTime  = 0
   , halfW        = 0
   , halfH        = 0
-  , enemies      = [Enemy (300, 0) (-100, 0) (20, 20) 0]  
+  , enemies      = [Enemy (300, 0) (-100, 0) (20, 20) 100 0]  
   , spawnTimer   = 0
   , rng          = mkStdGen 42
-  , bullets      = [Bullet (-300, 0) (800, 0) (10, 20) 0]
+  , bullets      = [Bullet (-300, 0) (800, 0) (10, 20) 20 0]
   , bspawnTimer  = 0
   }
 
@@ -82,9 +82,9 @@ update dt state
           -- Enemy Spawning
           timer = spawnTimer state - dt
           (randY,newGen) = randomR (-halfH state, halfH state) (rng state)
-          newEnemy = Enemy (halfW state + 40, randY) (-100,0) (20,20) (elapsedTime state)
+          newEnemy = Enemy (halfW state + 40, randY) (-100,0) (20,20) 100 (elapsedTime state)
 
-          (finalEnemies,finalTimer) =
+          (allCurrentEnemies, finalTimer) =
             if timer <= 0
                 then (newEnemy : movedEnemies, 2.0)
                 else (movedEnemies, timer)
@@ -98,11 +98,20 @@ update dt state
           bulletTimer = bspawnTimer state - dt
 
           -- Spawning new bullets
-          newBullet = Bullet(x,y) (800,0) (10, 20) (elapsedTime state)
-          (finalBullets,finalBulletTimer) =
+          newBullet = Bullet(x,y) (800,0) (10, 20) 20 (elapsedTime state)
+          (allCurrentBullets,finalBulletTimer) =
             if bulletTimer <= 0
                 then (newBullet : movedBullets, 0.2)
                 else (movedBullets, bulletTimer)
+
+
+          -- Removing all destroyed bullets and enemies
+          pendingDestroyedEntities = allBulletCollisions allCurrentBullets allCurrentEnemies
+          destroyedEnemies = (catMaybes . map snd) pendingDestroyedEntities
+          destroyedBullets = map fst pendingDestroyedEntities
+
+          finalEnemies = [ enemy | enemy <- allCurrentEnemies, not (enemy `elem` destroyedEnemies)]
+          finalBullets = [ bullet| bullet <- allCurrentBullets, not (bullet `elem` destroyedBullets)]
 
       in return state 
                { playerPos   = (x + vx * dt, y + vy * dt)
@@ -129,7 +138,7 @@ render state = return $
   pictures $
     [ translate x y $ color cyan $ rectangleSolid 50 20 ] ++
     [ translate ex ey $ color red  $ rectangleSolid 40 40
-    | Enemy (ex, ey) (evx, evy) (sx, sy) (ehc, ehm) bornT <- enemies state ] ++
+    | Enemy (ex, ey) (evx, evy) (sx, sy) eHealth bornT <- enemies state ] ++
     [ translate bx by $ color yellow  $ rectangleSolid 20 10 
     | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state]
   where
@@ -140,9 +149,9 @@ data Enemy = Enemy
   { ePos   :: (Float, Float)
   , eVel   :: (Float, Float)
   , eSize  :: (Float, Float)
-  , health :: (Float, Float)
+  , health :: Float
   , eBornT :: Float
-  } deriving Show
+  } deriving (Show, Eq)
 
 --bullet logic
 
@@ -153,13 +162,19 @@ data Bullet = Bullet
   , bSize   :: (Float, Float)
   , bDamage :: Float
   , bBornT  :: Float
-  } deriving Show
+  } deriving (Show, Eq)
 
 
 --Handling collision
 -- Handling all collisions between all bullets and all enemies
-allBulletCollisions :: [Bullet] -> [Enemy] -> [(Bullet, Enemy)]
-allBulletCollisions bs es = [ (bullet, enemy)  | bullet <- bs, enemy <- es, bulletCollision bullet enemy]
+allBulletCollisions :: [Bullet] -> [Enemy] -> [(Bullet, Maybe Enemy)]
+allBulletCollisions bs es = [ (bullet, checkEnemyAlive enemy)  | bullet <- bs, enemy <- es, bulletCollision bullet enemy]
+ where 
+  -- Filtering out enemies that ARE alive, to make sure they don't get removed.
+  checkEnemyAlive :: Enemy -> Maybe Enemy 
+  checkEnemyAlive fullEnemy@(Enemy _ _ _ health _) 
+   | health > 0 = Nothing
+   | otherwise = Just fullEnemy
 
 -- Single collision between bullet and enemy
 bulletCollision :: Bullet -> Enemy -> Bool
@@ -168,9 +183,6 @@ bulletCollision (Bullet (bposx, bposy) _ (bsx, bsy) _ _) (Enemy (eposx, eposy) _
   (bposx + bsx > eposx) &&
   (bposy < eposy + esy) &&
   (bposy + bsy > eposy)
-
-
-
 
 
 
