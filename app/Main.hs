@@ -22,6 +22,8 @@ data GameState = GameState
   , rng          :: StdGen
   , bullets      :: [Bullet]
   , bspawnTimer  :: Float
+  , score        :: Int
+  , highScore    :: Int
   } deriving Show
 
 --initialising gamestate
@@ -42,6 +44,8 @@ initialState = GameState
   , rng          = mkStdGen 42
   , bullets      = [Bullet (-300, 0) (800, 0) (10, 20) 20 0]
   , bspawnTimer  = 0
+  , score        = 0
+  , highScore    = 99999
   }
 
 --handling input
@@ -161,15 +165,28 @@ update dt state
                }
 
 --window settings
-
 window :: Display
 window = FullScreen
 
 fps :: Int
 fps = 144
 
---rendering world
+scoreTextScale :: Float
+scoreTextScale = 0.25
 
+scoreTextSpacing :: Float
+scoreTextSpacing = 50
+
+textXOffset :: Float
+textXOffset = 50
+
+highScoreTextXOffset :: Float
+highScoreTextXOffset = 160
+
+scoreTextXOffset :: Float
+scoreTextXOffset = 110
+
+--rendering world
 render :: GameState -> IO Picture
 render state = return $
   pictures $
@@ -180,7 +197,11 @@ render state = return $
     | e <- enemies state ] ++
     [ translate bx by $ color yellow $ rectangleSolid 20 10
     | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state] ++ 
-    (if isPaused state then [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 100 50 $ color cyan $ text "Paused"] else [])
+    [translate (-halfW state + textXOffset + scoreTextXOffset) (halfH state - scoreTextSpacing) $ scale scoreTextScale scoreTextScale $ color white $  text $ show $ score state,
+    translate (-halfW state + textXOffset) (halfH state - scoreTextSpacing) $ scale scoreTextScale scoreTextScale $ color white $  text "Score:", 
+    translate (-halfW state + textXOffset) (halfH state - (2 * scoreTextSpacing)) $ scale scoreTextScale scoreTextScale $ color white $ text "Highscore:",
+     translate (-halfW state + textXOffset + highScoreTextXOffset) (halfH state - (2 * scoreTextSpacing)) $ scale scoreTextScale scoreTextScale $ color white $ text $ show $ highScore state] ++ 
+    (if isPaused state then [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $ color cyan $ text "Paused"] else [])
   where
     (x, y) = playerPos state
 
