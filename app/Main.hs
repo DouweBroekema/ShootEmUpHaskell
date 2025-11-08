@@ -146,7 +146,8 @@ render state = return $
     [ translate ex ey $ color red  $ rectangleSolid 40 40
     | Enemy (ex, ey) (evx, evy) (sx, sy) eHealth bornT <- enemies state ] ++
     [ translate bx by $ color yellow  $ rectangleSolid 20 10 
-    | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state]
+    | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state] ++ 
+    (if isPaused state then [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 100 50 $ color cyan $ text "Paused"] else [])
   where
     (x, y) = playerPos state
 
@@ -157,6 +158,13 @@ data Enemy = Enemy
   , eSize  :: (Float, Float)
   , health :: Float
   , eBornT :: Float
+  } deriving (Show, Eq)
+
+data Obstacle = Obstacle
+  { oPos   :: (Float, Float)
+  , oVel   :: (Float, Float)
+  , oSize  :: (Float, Float)
+  , oBornT :: Float
   } deriving (Show, Eq)
 
 --bullet logic
