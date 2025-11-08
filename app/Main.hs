@@ -6,6 +6,10 @@ import Graphics.Gloss.Interface.Environment (getScreenSize)
 import System.Random (StdGen, randomR, mkStdGen)
 import System.Exit (exitSuccess)
 import Data.Maybe (catMaybes)
+import GHC.IO.IOMode (IOMode(ReadMode))
+import GHC.IO.FD (openFile)
+import GHC.IO.Handle (hGetContents)
+import GHC.Integer (wordToInteger)
 
 -- Variables
 enemyScoreIncrement :: Int
@@ -79,7 +83,7 @@ handleInput (EventKey (SpecialKey KeyEsc) Down _ _) state = do
     exitSuccess
 handleInput (EventKey (Char 'p') Down _ _) state = 
    case playerState state of
-             Dead    -> return initialState { halfW = halfW state, halfH = halfH state, playerPos = (-(halfW state) + playerXOffset, 0)}
+             Dead    -> return initialState { halfW = halfW state, halfH = halfH state, playerPos = (-(halfW state) + playerXOffset, 0), highScore = highScore state }
              Playing -> return state { playerState = Paused}
              Paused  -> return state { playerState = Playing}
 handleInput _ state = return state
@@ -89,7 +93,7 @@ handleInput _ state = return state
 update :: Float -> GameState -> IO GameState
 update dt state = case playerState state of
   Paused -> return state
-  Dead -> return state
+  Dead ->  return state
   Playing -> do
       let (x,y)   = playerPos state
           (vx,vy) = playerVel state
@@ -123,7 +127,7 @@ update dt state = case playerState state of
 
           -- Player Collision
           playerHit = any (playerCollision (x,y) (50,20)) spawned
-
+        
           -- Spawning new bullets
           newBullet = Bullet(x,y) (800,0) (10, 20) 20 (elapsedTime state)
           (allCurrentBullets,finalBulletTimer) =
@@ -177,6 +181,13 @@ update dt state = case playerState state of
     
        
            in 
+            if playerHit then do
+               let currentHighScore = highScore state
+               if scoreProcessed > currentHighScore then 
+                writeFile highScoreFilePath (show scoreProcessed)
+                else return ()
+               return state { playerState = Dead, score = scoreProcessed, highScore = if scoreProcessed > currentHighScore then scoreProcessed else currentHighScore }
+            else
              return state 
                { playerPos   = (x + vx * dt, y + vy * dt)
                , enemies     = finalEnemies
@@ -185,7 +196,7 @@ update dt state = case playerState state of
                , rng         = newGen
                , bullets     = finalBullets
                , bspawnTimer = finalBulletTimer
-               , score       = if playerHit then 0 else scoreProcessed
+               , score       = scoreProcessed
                , playerState = if playerHit then Dead else Playing
                }
 
@@ -240,6 +251,10 @@ render state = return $
   where
     (x, y) = playerPos state
 
+
+background :: Color
+background = black
+
 --enemy logic
 data EnemyType= Dumb Enemy | Smart SmartEnemy 
   deriving (Show, Eq)
@@ -260,12 +275,6 @@ data SmartEnemy = SmartEnemy
   , seBornT :: Float
   } deriving (Show, Eq)
 
-data Obstacle = Obstacle
-  { oPos   :: (Float, Float)
-  , oVel   :: (Float, Float)
-  , oSize  :: (Float, Float)
-  , oBornT :: Float
-  } deriving (Show, Eq)
 
 moveEnemy :: Float -> (Float, Float) -> EnemyType -> EnemyType
 moveEnemy dt (_, playerY) enemy =
@@ -315,16 +324,19 @@ playerCollision (px, py) (pw, ph) et =
       Smart (SmartEnemy (ex,ey) _ (ew,eh) _ _) -> overlap (px,py,pw,ph) (ex,ey,ew,eh)
 
 
-background :: Color
-background = black
+highScoreFilePath :: String
+highScoreFilePath = "HighScore.txt"
 
 main :: IO ()
 main = do
+    contents <- readFile highScoreFilePath
+    let savedHighScore = read contents :: Int
     (screenWidth, _screenHeight) <- getScreenSize
     let startX = fromIntegral (-screenWidth) / 2 + playerXOffset
         startState = initialState 
           { playerPos = (startX, 0)
           , halfW = fromIntegral screenWidth / 2
-          , halfH = fromIntegral _screenHeight / 2 
+          , halfH = fromIntegral _screenHeight / 2
+          , highScore = savedHighScore
           }
     playIO window background fps startState render handleInput update
