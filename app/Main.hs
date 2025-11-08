@@ -17,7 +17,7 @@ data GameState = GameState
   , elapsedTime  :: Float
   , halfW        :: Float
   , halfH        :: Float
-  , enemies      :: [Enemy]
+  , enemies      :: [EnemyType]
   , spawnTimer   :: Float
   , rng          :: StdGen
   , bullets      :: [Bullet]
@@ -35,7 +35,9 @@ initialState = GameState
   , elapsedTime  = 0
   , halfW        = 0
   , halfH        = 0
-  , enemies      = [Enemy (300, 0) (-100, 0) (20, 20) 100 0]  
+  , enemies      = [Dumb (Enemy (300, 0) (-100, 0) (20, 20) 100 0)
+                   , Smart (SmartEnemy (400, 100) (-80, 0) (25, 25) 100 0)
+                   ]  
   , spawnTimer   = 0
   , rng          = mkStdGen 42
   , bullets      = [Bullet (-300, 0) (800, 0) (10, 20) 20 0]
@@ -73,29 +75,34 @@ update dt state
           (vx,vy) = playerVel state
 
           -- Moving enemies
-          movedEnemies = [ e { ePos = (ex + evx * dt, ey + evy * dt) }
-                       | e <- enemies state
-                       , let (ex, ey)   = ePos e
-                       , let (evx, evy) = eVel e
-                       ]
-          
+          movedEnemies = map (moveEnemy dt (x,y)) (enemies state)
+          -- Moving bullets
+          movedBullets = [ b { bPos = (bx + bvx * dt, by + bvy * dt) }
+                         | b <- bullets state
+                         , let (bx, by)   = bPos b
+                         , let (bvx, bvy) = bVel b
+                         ]
+          bulletTimer = bspawnTimer state - dt
+
           -- Enemy Spawning
           timer = spawnTimer state - dt
-          (randY,newGen) = randomR (-halfH state, halfH state) (rng state)
-          newEnemy = Enemy (halfW state + 40, randY) (-100,0) (20,20) 100 (elapsedTime state)
-
-          (allCurrentEnemies, finalTimer) =
+          (randY, gen1)   = randomR (-halfH state, halfH state) (rng state)
+          (rType, newGen) = randomR (0 :: Float, 1 :: Float) gen1
+          spawned =
             if timer <= 0
-                then (newEnemy : movedEnemies, 2.0)
-                else (movedEnemies, timer)
+              then (if rType < 0.5
+                then Dumb (Enemy (halfW state + 40, randY) (-100, 0) (20, 20) 100 (elapsedTime state))
+                else Smart (SmartEnemy (halfW state + 40, randY) (-120, 0) (25, 25) 100 (elapsedTime state))
+                ) : movedEnemies
+              else movedEnemies
+          finalTimer = if timer <= 0 then 2.0 else timer
 
-          -- Moving enemies
-          movedBullets = [ b { bPos = (bx + bvx * dt, by + bvy * dt) }
-                       | b <- bullets state
-                       , let (bx, by)   = bPos b
-                       , let (bvx, bvy) = bVel b
-                       ]
-          bulletTimer = bspawnTimer state - dt
+          allCurrentEnemies =
+            [ e | Dumb e <- spawned ] ++ [ convertSmart se | Smart se <- spawned ]
+          convertSmart (SmartEnemy p v s h b) = Enemy p v s h b
+
+          -- Player Collision
+          playerHit = any (playerCollision (x,y) (50,20)) spawned
 
           -- Spawning new bullets
           newBullet = Bullet(x,y) (800,0) (10, 20) 20 (elapsedTime state)
@@ -113,18 +120,42 @@ update dt state
           hitEnemies = map snd pendingDestroyedEntities
           nonHitEnemies = filter (\x -> x `notElem` hitEnemies) allCurrentEnemies
           hitEnemiesProcessed = map f pendingDestroyedEntities
-           where f (Bullet bp bv bs d bt, Enemy ep ev es health et) = (Enemy ep ev es (health-d) et)
+            where f (Bullet _ _ _ d _, Enemy ep ev es hp et) = Enemy ep ev es (hp - d) et
+
+          findWrapper :: Enemy -> EnemyType -> EnemyType
+          findWrapper e (Dumb _) =
+            Dumb e
+          findWrapper e (Smart _) =
+            Smart (SmartEnemy (ePos e) (eVel e) (eSize e) (health e) (eBornT e))  
 
           -- Finalizing bullets and enemies
-          finalEnemies = nonHitEnemies ++ filter (\(Enemy _ _ _ health _) -> health > 0) hitEnemiesProcessed
+          finalEnemies =
+            [ et
+            | et <- spawned
+            , let base = case et of
+                           Dumb e  -> e
+                           Smart s -> convertSmart s
+            , base `notElem` hitEnemies
+            ] ++
+            [ findWrapper updated original
+            | updated@(Enemy ep ev es hp et) <- hitEnemiesProcessed, hp > 0
+            , original <- spawned
+            , let origBase = case original of
+                               Dumb e  -> e
+                               Smart s -> convertSmart s
+            , (ep,ev,es) == (ePos origBase, eVel origBase, eSize origBase)
+            ]
           finalBullets = [ bullet| bullet <- allCurrentBullets, not (bullet `elem` destroyedBullets)]
 
-      in return state 
+      in 
+        if playerHit
+          then exitSuccess
+          else return state 
                { playerPos   = (x + vx * dt, y + vy * dt)
                , enemies     = finalEnemies
                , spawnTimer  = finalTimer
                , elapsedTime = elapsedTime state + dt 
-               , rng = newGen
+               , rng         = newGen
                , bullets     = finalBullets
                , bspawnTimer = finalBulletTimer
                }
@@ -143,21 +174,34 @@ render :: GameState -> IO Picture
 render state = return $
   pictures $
     [ translate x y $ color cyan $ rectangleSolid 50 20 ] ++
-    [ translate ex ey $ color red  $ rectangleSolid 40 40
-    | Enemy (ex, ey) (evx, evy) (sx, sy) eHealth bornT <- enemies state ] ++
-    [ translate bx by $ color yellow  $ rectangleSolid 20 10 
+    [ case e of
+      Dumb  (Enemy (ex, ey) _ _ _ _)        -> translate ex ey $ color red   $ rectangleSolid 40 40
+      Smart (SmartEnemy (sx, sy) _ _ _ _)   -> translate sx sy $ color green $ rectangleSolid 40 40
+    | e <- enemies state ] ++
+    [ translate bx by $ color yellow $ rectangleSolid 20 10
     | Bullet (bx, by) (bvx, bvy) (sx, sy) bD bornT <- bullets state] ++ 
     (if isPaused state then [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 100 50 $ color cyan $ text "Paused"] else [])
   where
     (x, y) = playerPos state
 
 --enemy logic
+data EnemyType= Dumb Enemy | Smart SmartEnemy 
+  deriving (Show, Eq)
+
 data Enemy = Enemy
   { ePos   :: (Float, Float)
   , eVel   :: (Float, Float)
   , eSize  :: (Float, Float)
   , health :: Float
   , eBornT :: Float
+  } deriving (Show, Eq)
+
+data SmartEnemy = SmartEnemy
+  { sePos   :: (Float, Float)
+  , seVel   :: (Float, Float)
+  , seSize  :: (Float, Float)
+  , seHealth :: Float
+  , seBornT :: Float
   } deriving (Show, Eq)
 
 data Obstacle = Obstacle
@@ -167,9 +211,21 @@ data Obstacle = Obstacle
   , oBornT :: Float
   } deriving (Show, Eq)
 
---bullet logic
+moveEnemy :: Float -> (Float, Float) -> EnemyType -> EnemyType
+moveEnemy dt (_, playerY) enemy =
+  case enemy of
+    Dumb e ->
+      let (ex, ey)   = ePos e
+          (evx, evy) = eVel e
+      in Dumb e { ePos = (ex + evx * dt, ey + evy * dt) }
 
---enemy logic
+    Smart se ->
+      let (ex, ey)   = sePos se
+          (evx, _)   = seVel se
+          smartVy    = if playerY > ey then 60 else if playerY < ey then -60 else 0
+      in Smart se { sePos = (ex + evx * dt, ey + smartVy * dt) }
+
+--bullet logic
 data Bullet = Bullet
   { bPos    :: (Float, Float)
   , bVel    :: (Float, Float)
@@ -193,7 +249,14 @@ bulletCollision (Bullet (bposx, bposy) _ (bsx, bsy) _ _) (Enemy (eposx, eposy) _
   (bposy < eposy + esy) &&
   (bposy + bsy > eposy)
 
-
+-- Collision for player
+playerCollision :: (Float, Float) -> (Float, Float) -> EnemyType -> Bool
+playerCollision (px, py) (pw, ph) et =
+  let overlap (px, py, pw, ph) (ex, ey, ew, eh) =
+        (px < ex + ew) && (px + pw > ex) && (py < ey + eh) && (py + ph > ey)
+  in case et of
+      Dumb  (Enemy (ex,ey) _ (ew,eh) _ _)      -> overlap (px,py,pw,ph) (ex,ey,ew,eh)
+      Smart (SmartEnemy (ex,ey) _ (ew,eh) _ _) -> overlap (px,py,pw,ph) (ex,ey,ew,eh)
 
 
 background :: Color
