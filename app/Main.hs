@@ -21,7 +21,6 @@ data GameState = GameState
   { playerPos    :: (Float, Float)
   , playerVel    :: (Float, Float)
   , playerHealth :: (Float, Float)
-  , isPaused     :: Bool
   , elapsedTime  :: Float
   , halfW        :: Float
   , halfH        :: Float
@@ -32,10 +31,12 @@ data GameState = GameState
   , bspawnTimer  :: Float
   , score        :: Int
   , highScore    :: Int
+  , playerState  :: PlayerState
   } deriving Show
 
 -- Player state 
 data PlayerState = Playing | Paused | Dead
+  deriving (Show, Eq)
 
 
 --initialising gamestate
@@ -45,7 +46,6 @@ initialState = GameState
   { playerPos    = (-300, 0)
   , playerVel    = (0, 0)
   , playerHealth = (100, 100)
-  , isPaused     = False
   , elapsedTime  = 0
   , halfW        = 0
   , halfH        = 0
@@ -58,6 +58,7 @@ initialState = GameState
   , bspawnTimer  = 0
   , score        = 0
   , highScore    = 0
+  , playerState  = Playing
   }
 
 --handling input
@@ -78,15 +79,16 @@ handleInput (EventKey (SpecialKey KeyDown) Up _ _) state =
 handleInput (EventKey (SpecialKey KeyEsc) Down _ _) state = do
     exitSuccess
 handleInput (EventKey (Char 'p') Down _ _) state = do
-    return state {isPaused = not (isPaused state) }
+    return state { playerState = if playerState state == Playing then Paused else Playing }
 handleInput _ state = return state
 
 --updating game world
 
 update :: Float -> GameState -> IO GameState
-update dt state
-  | isPaused state = return state
-  | otherwise = 
+update dt state = case playerState state of
+  Paused -> return state
+  Dead -> return state
+  Playing -> do
       let (x,y)   = playerPos state
           (vx,vy) = playerVel state
 
@@ -171,10 +173,8 @@ update dt state
           
           
     
-      in 
-        if playerHit
-          then exitSuccess
-          else return state 
+       
+           in  return state 
                { playerPos   = (x + vx * dt, y + vy * dt)
                , enemies     = finalEnemies
                , spawnTimer  = finalTimer
@@ -183,6 +183,7 @@ update dt state
                , bullets     = finalBullets
                , bspawnTimer = finalBulletTimer
                , score       = if playerHit then 0 else scoreProcessed
+               , playerState = if playerHit then Dead else Playing
                }
 
 --window settings
@@ -228,7 +229,10 @@ render state = return $
     translate (-halfW state + textXOffset) (halfH state - scoreTextSpacing) $ scale scoreTextScale scoreTextScale $ color white $  text "Score:", 
     translate (-halfW state + textXOffset) (halfH state - (2 * scoreTextSpacing)) $ scale scoreTextScale scoreTextScale $ color white $ text "Highscore:",
      translate (-halfW state + textXOffset + highScoreTextXOffset) (halfH state - (2 * scoreTextSpacing)) $ scale scoreTextScale scoreTextScale $ color white $ text $ show $ highScore state] ++ 
-    (if isPaused state then [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $ color cyan $ text "Paused"] else [])
+    ( case playerState state of 
+      isPaused -> [color (withAlpha 0.8 black) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $ color cyan $ text "Paused"]
+      Dead ->  [color (withAlpha 0.9 red) $ rectangleSolid (halfW state *2) (halfW state *2), translate 0 0 $ color black $ text "You died!"]
+      Playing -> [])
   where
     (x, y) = playerPos state
 
